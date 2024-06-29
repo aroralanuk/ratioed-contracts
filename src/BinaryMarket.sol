@@ -3,41 +3,72 @@ pragma solidity ^0.8.0;
 
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
-contract BinaryMarket is ERC1155 {
+contract BinaryMarket is ERC1155, Initializable {
     uint256 public constant YES_TOKEN_ID = 0;
     uint256 public constant NO_TOKEN_ID = 1;
-    uint256 public constant VIRTUAL_LIQUIDITY = 1e18; // 1 unit of virtual liquidity
+    uint256 public constant PRECISION = 1e6; // 1 unit
 
     uint256 public yesShares;
     uint256 public noShares;
     uint256 public k;
     uint256 public collateral;
-    bool public isInitialized;
     bool public isSettled;
     bool public winningOutcome;
 
     IERC20 public collateralToken;
 
+    modifier liveMarket() {
+        require(!isSettled, "Market already settled");
+        _;
+    }
+
     constructor(address _collateralToken) ERC1155("") {
         collateralToken = IERC20(_collateralToken);
     }
 
-    function getCurrentPrices() public view returns (uint256 yesPrice, uint256 noPrice) {
-        uint256 totalLiquidity = yesShares + noShares + (isInitialized ? 0 : 2 * VIRTUAL_LIQUIDITY);
-        yesPrice = ((noShares + (isInitialized ? 0 : VIRTUAL_LIQUIDITY)) * 1e18) / totalLiquidity;
-        noPrice = ((yesShares + (isInitialized ? 0 : VIRTUAL_LIQUIDITY)) * 1e18) / totalLiquidity;
+    function initialize(uint256 yesRatio, uint256 noRatio) public initializer {
+        // require(yesRatio > 10e3 && noRatio > 10e3, "Ratios must be greater than 0.01%");
+
+        uint256 totalLiquidity = yesRatio + noRatio;
+
+        yesShares = yesRatio * PRECISION;
+        noShares = noRatio * PRECISION;
+
+        k = yesShares * noShares;
+
+        _mint(msg.sender, YES_TOKEN_ID, yesShares, "");
+        _mint(msg.sender, NO_TOKEN_ID, noShares, "");
+
+        // Transfer initial liquidity from the creator
+        require(
+            collateralToken.transferFrom(msg.sender, address(this), totalLiquidity), "Initial liquidity transfer failed"
+        );
+        collateral = totalLiquidity;
     }
 
-    function buyShares(bool isYes, uint256 quantity, uint256 maxCollateralAmount) public returns (uint256 cost) {
-        if (!isInitialized) {
-            require(quantity > VIRTUAL_LIQUIDITY, "First buy must exceed VIRTUAL_LIQUIDITY");
-            yesShares = VIRTUAL_LIQUIDITY;
-            noShares = VIRTUAL_LIQUIDITY;
-            k = yesShares * noShares;
-            isInitialized = true;
-        }
+    function getCurrentPrices() public view returns (uint256 yesPrice, uint256 noPrice) {
+        yesPrice = (noShares * PRECISION) / (yesShares + noShares);
+        noPrice = (yesShares * PRECISION) / (yesShares + noShares);
+    }
 
+    function getImpliedProbabilities() public view returns (uint256 yesPercentage, uint256 noPercentage) {
+        (uint256 yesPrice, uint256 noPrice) = getCurrentPrices();
+
+        uint256 totalPrice = yesPrice + noPrice;
+
+        // Calculate percentages, scaling up by 10000 to preserve precision (2 decimal places)
+        yesPercentage = (yesPrice * 10000) / totalPrice;
+        noPercentage = (noPrice * 10000) / totalPrice;
+    }
+
+    function buyShares(bool isYes, uint256 quantity, uint256 maxCollateralAmount)
+        public
+        liveMarket
+        returns (uint256 cost)
+    {
+        // TODO: add slippage limits
         if (isYes) {
             cost = noShares - (k / (yesShares + quantity));
             yesShares += quantity;
@@ -59,8 +90,8 @@ contract BinaryMarket is ERC1155 {
         return cost;
     }
 
-    function sellShares(bool isYes, uint256 quantity) public returns (uint256 refund) {
-        require(isInitialized, "Market not initialized");
+    function sellShares(bool isYes, uint256 quantity) public liveMarket returns (uint256 refund) {
+        require(!isSettled, "Market already settled");
 
         if (isYes) {
             require(balanceOf(msg.sender, YES_TOKEN_ID) >= quantity, "Not enough YES shares to sell");
@@ -83,10 +114,8 @@ contract BinaryMarket is ERC1155 {
         return refund;
     }
 
-    function settle(bool _winningOutcome) public {
-        require(isInitialized, "Market not initialized");
-        require(!isSettled, "Market already settled");
-        // Add access control here, e.g., onlyOwner or a trusted oracle
+    function settle(bool _winningOutcome) public liveMarket {
+        // TODO Add access control here, e.g., onlyOwner or a trusted oracle
 
         isSettled = true;
         winningOutcome = _winningOutcome;
