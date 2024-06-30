@@ -25,7 +25,7 @@ contract BinaryMarketTest is Test, ERC1155Holder {
 
     function setUp() public {
         collateralToken = new MockERC20();
-        market = new BinaryMarket(address(collateralToken));
+        market = new BinaryMarket();
 
         collateralToken.mint(address(this), 5000000 * 10e6);
         collateralToken.mint(alice, 1000000 * 10e6);
@@ -40,7 +40,7 @@ contract BinaryMarketTest is Test, ERC1155Holder {
         vm.prank(charlie);
         collateralToken.approve(address(market), type(uint256).max);
 
-        market.initialize(9000e6, 1000e6); // 90-10 split
+        market.initialize(address(collateralToken), 9000e6, 1000e6); // 90-10 split
     }
 
     function testFuzz_InitialBuy(uint256 amount, bool isYes) public {
@@ -100,10 +100,9 @@ contract BinaryMarketTest is Test, ERC1155Holder {
         uint256 initialK = market.k();
         uint256 totalCollateral = market.collateral();
 
-        // [1994647917985313372, 295058309315067307828757043787964295673873314446890793116774105762028, 692950628675362409552 [6.929e20], 3320218 [3.32e6], 49048979678062013166924463759 [4.904e28], 2124119371220603742534758844378938013379448858661744007984 [2.124e57], 25882957 [2.588e7], 15159299460104056898486240497164333175757095739039080 [1.515e52], 27214826445453499047025975622078 [2.721e31], 20572374606720 [2.057e13]], [false, true, false, true, true, false, false, true, false, true]]
-
         for (uint256 i = 0; i < 10; i++) {
             amounts[i] = bound(amounts[i], 1e6, 1000 * 10e6);
+            console.log("Trade %d: %d %s", i, amounts[i], isYes[i] ? "YES" : "NO");
             address trader = i % 2 == 0 ? alice : bob;
 
             vm.prank(trader);
@@ -114,7 +113,7 @@ contract BinaryMarketTest is Test, ERC1155Holder {
                 // Sell
                 uint256 balance = market.balanceOf(trader, isYes[i] ? 0 : 1);
                 if (balance > 0) {
-                    market.sellShares(isYes[i], amounts[i]);
+                    market.sellShares(isYes[i], amounts[i] % balance);
                 }
             }
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "forge-std/console.sol";
+
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
@@ -24,11 +26,10 @@ contract BinaryMarket is ERC1155, Initializable {
         _;
     }
 
-    constructor(address _collateralToken) ERC1155("") {
-        collateralToken = IERC20(_collateralToken);
-    }
+    constructor() ERC1155("") {}
 
-    function initialize(uint256 yesRatio, uint256 noRatio) public initializer {
+    function initialize(address _collateralToken, uint256 yesRatio, uint256 noRatio) public initializer {
+        collateralToken = IERC20(_collateralToken);
         // require(yesRatio > 10e3 && noRatio > 10e3, "Ratios must be greater than 0.01%");
 
         uint256 totalLiquidity = yesRatio + noRatio;
@@ -46,6 +47,7 @@ contract BinaryMarket is ERC1155, Initializable {
             collateralToken.transferFrom(msg.sender, address(this), totalLiquidity), "Initial liquidity transfer failed"
         );
         collateral = totalLiquidity;
+        console.log("Initialized market with liquidity: ", collateral);
     }
 
     function getCurrentPrices() public view returns (uint256 yesPrice, uint256 noPrice) {
@@ -91,10 +93,12 @@ contract BinaryMarket is ERC1155, Initializable {
     }
 
     function sellShares(bool isYes, uint256 quantity) public liveMarket returns (uint256 refund) {
+        console.log("SELLING");
         require(!isSettled, "Market already settled");
 
         if (isYes) {
             require(balanceOf(msg.sender, YES_TOKEN_ID) >= quantity, "Not enough YES shares to sell");
+
             refund = (k / (yesShares - quantity)) - noShares;
             yesShares -= quantity;
             noShares += refund;
@@ -107,8 +111,11 @@ contract BinaryMarket is ERC1155, Initializable {
             _burn(msg.sender, NO_TOKEN_ID, quantity);
         }
 
-        collateral -= refund;
+        console.log(collateral, refund, yesShares, noShares);
+        console.log("k: ", k);
+
         require(collateralToken.transfer(msg.sender, refund), "Transfer failed");
+        collateral -= refund;
 
         k = yesShares * noShares;
         return refund;
