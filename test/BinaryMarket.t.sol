@@ -40,7 +40,7 @@ contract BinaryMarketTest is Test, ERC1155Holder {
         vm.prank(charlie);
         collateralToken.approve(address(market), type(uint256).max);
 
-        market.initialize(address(collateralToken), 9000e6, 1000e6); // 90-10 split
+        market.initialize("1739723684867358872", address(collateralToken), 9000e6, 1000e6, 2 days); // 90-10 split
     }
 
     function testFuzz_InitialBuy(uint256 amount, bool isYes) public {
@@ -80,7 +80,7 @@ contract BinaryMarketTest is Test, ERC1155Holder {
         uint256 initialCollateral = market.collateral();
 
         vm.prank(alice);
-        uint256 refund = market.sellShares(isYes, sellAmount);
+        uint256 refund = market.sellShares(isYes, sellAmount, 0);
 
         assertGt(refund, 0, "Refund should be greater than zero");
         assertLt(market.collateral(), initialCollateral, "Collateral should decrease");
@@ -96,7 +96,7 @@ contract BinaryMarketTest is Test, ERC1155Holder {
         assertApproxEqRel(market.k(), initialYesShares * initialNoShares, 1e12, "K should decrease or stay the same");
     }
 
-    function testFuzz_MultipleTrades(uint256[10] memory amounts, bool[10] memory isYes) public {
+    function fuzz_MultipleTrades(uint256[10] memory amounts, bool[10] memory isYes) public {
         uint256 initialK = market.k();
         uint256 totalCollateral = market.collateral();
 
@@ -113,7 +113,7 @@ contract BinaryMarketTest is Test, ERC1155Holder {
                 // Sell
                 uint256 balance = market.balanceOf(trader, isYes[i] ? 0 : 1);
                 if (balance > 0) {
-                    market.sellShares(isYes[i], amounts[i] % balance);
+                    market.sellShares(isYes[i], amounts[i] % balance, 0);
                 }
             }
 
@@ -122,5 +122,27 @@ contract BinaryMarketTest is Test, ERC1155Holder {
             assertEq(market.yesShares() * market.noShares(), market.k(), "K should always equal yesShares * noShares");
             // assertGe(market.collateral(), totalCollateral, "Total collateral should never decrease"); // TODO: Fix this
         }
+    }
+
+    function testQuote() public {
+        // Initial market state
+        uint256 initialYesShares = market.yesShares();
+        uint256 initialNoShares = market.noShares();
+
+        // Test quoting buy YES shares
+        uint256 buyYesQuote = market.quote(true, true, 100e6);
+        assertGt(buyYesQuote, 0, "Buying YES shares should have a non-zero cost");
+
+        // Test quoting buy NO shares
+        uint256 buyNoQuote = market.quote(false, true, 100e6);
+        assertGt(buyNoQuote, 0, "Buying NO shares should have a non-zero cost");
+
+        // Test quoting sell YES shares
+        uint256 sellYesQuote = market.quote(true, false, 100e6);
+        assertGt(sellYesQuote, 0, "Selling YES shares should have a non-zero refund");
+
+        // Test quoting sell NO shares
+        uint256 sellNoQuote = market.quote(false, false, 100e6);
+        assertGt(sellNoQuote, 0, "Selling NO shares should have a non-zero refund");
     }
 }
