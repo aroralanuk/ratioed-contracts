@@ -12,6 +12,9 @@ contract BinaryMarket is ERC1155, Initializable {
     uint256 public constant NO_TOKEN_ID = 1;
     uint256 public constant PRECISION = 1e6; // 1 unit
 
+    uint256 public constant MIN_DEADLINE = 12 hours;
+    uint256 public constant MAX_DEADLINE = 7 days;
+
     struct MarketData {
         string tweetId;
         uint256 yesShares;
@@ -21,6 +24,7 @@ contract BinaryMarket is ERC1155, Initializable {
         uint256 collateral;
         bool isSettled;
         bool winningOutcome;
+        uint256 deadline;
     }
 
     MarketData public marketData;
@@ -32,18 +36,21 @@ contract BinaryMarket is ERC1155, Initializable {
 
     constructor() ERC1155("") {}
 
-    function initialize(string memory tweetId, address _collateralToken, uint256 yesRatio, uint256 noRatio)
-        public
-        initializer
-    {
+    function initialize(
+        string memory tweetId,
+        address _collateralToken,
+        uint256 yesShares,
+        uint256 noShares,
+        uint256 deadlineWindow
+    ) public initializer {
         marketData.tweetId = tweetId;
         marketData.collateralToken = IERC20(_collateralToken);
         // require(yesRatio > 10e3 && noRatio > 10e3, "Ratios must be greater than 0.01%");
 
-        uint256 totalLiquidity = yesRatio + noRatio;
+        uint256 totalLiquidity = yesShares + noShares;
 
-        marketData.yesShares = yesRatio * PRECISION;
-        marketData.noShares = noRatio * PRECISION;
+        marketData.yesShares = yesShares;
+        marketData.noShares = noShares;
 
         marketData.k = marketData.yesShares * marketData.noShares;
 
@@ -56,6 +63,13 @@ contract BinaryMarket is ERC1155, Initializable {
             "Initial liquidity transfer failed"
         );
         marketData.collateral = totalLiquidity;
+
+        require(
+            deadlineWindow >= MIN_DEADLINE && deadlineWindow <= MAX_DEADLINE,
+            "Deadline must be between 12 hours and 7 days from now"
+        );
+        marketData.deadline = deadlineWindow + block.timestamp;
+
         console.log("Initialized market with liquidity: ", marketData.collateral);
     }
 
@@ -64,22 +78,12 @@ contract BinaryMarket is ERC1155, Initializable {
         noPrice = (marketData.yesShares * PRECISION) / (marketData.yesShares + marketData.noShares);
     }
 
-    function getImpliedProbabilities() public view returns (uint256 yesPercentage, uint256 noPercentage) {
-        (uint256 yesPrice, uint256 noPrice) = getCurrentPrices();
-
-        uint256 totalPrice = yesPrice + noPrice;
-
-        // Calculate percentages, scaling up by 10000 to preserve precision (2 decimal places)
-        yesPercentage = (yesPrice * 10000) / totalPrice;
-        noPercentage = (noPrice * 10000) / totalPrice;
-    }
-
     function quote(bool isYes, bool isBuy, uint256 amount) public view returns (uint256 quantity) {
         if (isBuy) {
             if (isYes) {
-                quantity = ((marketData.yesShares * amount) / (marketData.noShares + amount)) - marketData.yesShares;
+                quantity = marketData.k / (marketData.noShares - amount) - marketData.yesShares;
             } else {
-                quantity = ((marketData.noShares * amount) / (marketData.yesShares + amount)) - marketData.noShares;
+                quantity = marketData.k / (marketData.yesShares - amount) - marketData.noShares;
             }
         } else {
             // For selling, we keep the original logic
@@ -118,7 +122,11 @@ contract BinaryMarket is ERC1155, Initializable {
         return cost;
     }
 
-    function sellShares(bool isYes, uint256 quantity) public liveMarket returns (uint256 refund) {
+    function sellShares(bool isYes, uint256 quantity, uint256 /*minAmountOut*/ )
+        public
+        liveMarket
+        returns (uint256 refund)
+    {
         console.log("SELLING");
         require(!marketData.isSettled, "Market already settled");
 
@@ -150,6 +158,8 @@ contract BinaryMarket is ERC1155, Initializable {
     function settle(bool _winningOutcome) public liveMarket {
         // TODO Add access control here, e.g., onlyOwner or a trusted oracle
 
+        require(block.timestamp > marketData.deadline, "Cannot settle before deadline");
+
         marketData.isSettled = true;
         marketData.winningOutcome = _winningOutcome;
     }
@@ -170,11 +180,23 @@ contract BinaryMarket is ERC1155, Initializable {
         return redeemAmount;
     }
 
+    function collateral() public view returns (uint256) {
+        return marketData.collateral;
+    }
+
     function yesShares() public view returns (uint256) {
         return marketData.yesShares;
     }
 
     function noShares() public view returns (uint256) {
         return marketData.noShares;
+    }
+
+    function k() public view returns (uint256) {
+        return marketData.k;
+    }
+
+    function isInitialized() public view returns (bool) {
+        return marketData.collateral != 0;
     }
 }

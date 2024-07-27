@@ -67,7 +67,7 @@ contract DeployRatioedScript is Script {
             IERC20(collateralToken).approve(marketAddress, totalLiquidity);
 
             BinaryMarket market = BinaryMarket(marketAddress);
-            market.initialize(tweetStatuses[i], collateralToken, yesShares[i], noShares[i], 7 days);
+            market.initialize(tweetStatuses[i], collateralToken, yesShares[i], noShares[i], 6 days);
 
             // Verify market creation
             bytes32 tweetHash = keccak256(abi.encodePacked(tweetStatuses[i]));
