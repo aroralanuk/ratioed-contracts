@@ -8,6 +8,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
 contract BinaryMarket is ERC1155, Initializable {
+    event MarketInitialized(
+        address collateralToken, uint256 collateralAmount, uint256 yesShares, uint256 noShares, uint256 deadline
+    );
+
     uint256 public constant YES_TOKEN_ID = 0;
     uint256 public constant NO_TOKEN_ID = 1;
     uint256 public constant PRECISION = 1e6; // 1 unit
@@ -71,6 +75,7 @@ contract BinaryMarket is ERC1155, Initializable {
         marketData.deadline = deadlineWindow + block.timestamp;
 
         console.log("Initialized market with liquidity: ", marketData.collateral);
+        emit MarketInitialized(_collateralToken, totalLiquidity, yesShares, noShares, marketData.deadline);
     }
 
     function getCurrentPrices() public view returns (uint256 yesPrice, uint256 noPrice) {

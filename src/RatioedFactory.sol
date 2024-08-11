@@ -6,7 +6,7 @@ import "forge-std/console.sol";
 import {BinaryMarket} from "./BinaryMarket.sol";
 
 contract RatioedFactory {
-    event MarketCreated(address market, bytes32 tweetHash);
+    event MarketCreated(address market, string tweetStatus);
 
     mapping(string => address) public getMarket;
     address[] public markets;
@@ -23,7 +23,7 @@ contract RatioedFactory {
         getMarket[tweetStatus] = market;
         markets.push(market);
 
-        emit MarketCreated(market, salt);
+        emit MarketCreated(market, tweetStatus);
     }
 
     function getDeterministicAddress(string memory tweetStatus) external view returns (address) {
